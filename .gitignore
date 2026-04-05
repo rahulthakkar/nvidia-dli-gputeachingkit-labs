@@ -1,0 +1,41 @@
+# CUDA build artifacts
+*.i
+*.ii
+*.gpu
+*.ptx
+*.cubin
+*.fatbin
+*.d
+*.linkinfo
+
+# Object files and logs
+*.o
+*.log
+
+# Build directories
+build
+build-*/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+
+# macOS
+.DS_Store
+._*
+
+# Linux/Emacs
+*~
+
+# Editors
+.vscode/
+.idea/
+
+# Misc
+.srclib-cache/
+.srclib-store/
+*.swp
+pdfs/
+node_modules/
+.cmaketools.json
