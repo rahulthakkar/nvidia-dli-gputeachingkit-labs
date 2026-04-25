@@ -57,6 +57,7 @@ int main(int argc, char **argv) {
  
   gpuTKTime_start(Compute, "Performing CUDA computation");
   //@@ Part A: perform parallel vector addition with different streams. 
+  unsigned int numSegs = 0;
   for (unsigned int s =0; s<numSegs; s++){
           //@@ Part A: Asynchronous copy data to the device memory in segments 
 
