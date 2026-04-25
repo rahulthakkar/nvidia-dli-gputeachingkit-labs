@@ -72,6 +72,18 @@ static inline cudaError_t gpuTKCUDAFree(void *mem) {
 #define cudaMalloc(elem, err) gpuTKCUDAMalloc((void **)elem, err)
 #define cudaFree gpuTKCUDAFree
 
+#ifndef gpuTKCheck
+#define gpuTKCheck(stmt)                                                     \
+  do {                                                                    \
+    cudaError_t err = stmt;                                               \
+    if (err != cudaSuccess) {                                             \
+      gpuTKLog(ERROR, "Failed to run stmt ", #stmt);                         \
+      gpuTKLog(ERROR, "Got CUDA error ...  ", cudaGetErrorString(err));      \
+      return -1;                                                          \
+    }                                                                     \
+  } while (0)
+#endif /* gpuTKCheck */
+
 #endif /* GPUTK_USE_CUDA */
 
 #endif /* __GPUTK_CUDA_H__ */
