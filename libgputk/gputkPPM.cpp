@@ -158,7 +158,7 @@ void gpuTKPPM_export(const char *filename, gpuTKImage_t img) {
   unsigned char *charData;
   unsigned char *charIter;
 
-  file = gpuTKFile_open(filename, "gpuTK+");
+  file = gpuTKFile_open(filename, "wb");
 
   width    = gpuTKImage_getWidth(img);
   height   = gpuTKImage_getHeight(img);
