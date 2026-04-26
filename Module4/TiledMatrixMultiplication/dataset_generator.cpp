@@ -1,6 +1,10 @@
 
 #include "gputk.h"
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 static char *base_dir;
 
 #define value(arry, i, j, width) arry[(i)*width + (j)]
@@ -12,11 +16,11 @@ static void compute(float *output, float *input0, float *input1,
 #define A(i, j) value(input0, i, j, numAColumns)
 #define B(i, j) value(input1, i, j, numBColumns)
 #define C(i, j) value(output, i, j, numCColumns)
-  int ii, jj, kk;
-  for (ii = 0; ii < numCRows; ++ii) {
-    for (jj = 0; jj < numCColumns; ++jj) {
+  #pragma omp parallel for schedule(static)
+  for (int ii = 0; ii < numCRows; ++ii) {
+    for (int jj = 0; jj < numCColumns; ++jj) {
       float sum = 0;
-      for (kk = 0; kk < numAColumns; ++kk) {
+      for (int kk = 0; kk < numAColumns; ++kk) {
         sum += A(ii, kk) * B(kk, jj);
       }
       C(ii, jj) = sum;
@@ -110,6 +114,13 @@ int main() {
   base_dir = gpuTKPath_join(gpuTKDirectory_current(),
                          "TiledMatrixMultiplication", "Dataset");
 
+#ifdef _OPENMP
+  gpuTKLog(TRACE, "Generating datasets with OpenMP using ",
+           omp_get_max_threads(), " threads");
+#else
+  gpuTKLog(TRACE, "Generating datasets without OpenMP");
+#endif
+
   create_dataset(0, 16, 16, 16);
   create_dataset(1, 64, 64, 64);
   create_dataset(2, 64, 128, 64);
@@ -119,5 +130,6 @@ int main() {
   create_dataset(6, 67, 53, 64);
   create_dataset(7, 29, 117, 85);
   create_dataset(8, 191, 19, 241);
+  create_dataset(9, 4096, 4096, 4096);
   return 0;
 }
