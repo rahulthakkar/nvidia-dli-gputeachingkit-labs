@@ -3,8 +3,6 @@
 constexpr int MASK_RADIUS = 2;
 constexpr int MASK_SIZE = 2 * MASK_RADIUS + 1;
 constexpr int TILE_SIZE = 16;
-constexpr int TILE_WITH_HALO = TILE_SIZE + MASK_SIZE - 1;
-constexpr int CHANNELS = 3;
 
 __device__ __forceinline__ float clamp(float x) {
   return min(max(x, 0.f), 1.f);
@@ -16,48 +14,26 @@ __constant__ float constantMask[MASK_SIZE * MASK_SIZE];
 __global__ void convolution(const float* __restrict__ deviceInputImageData, float* __restrict__ deviceOutputImageData, 
                              int imageChannels, int imageWidth, int imageHeight) {
   // Set based on the value of the config setting chosen  
-  // int channel = blockIdx.x * blockDim.x + threadIdx.x;
-  // int outCol = blockIdx.y * blockDim.y + threadIdx.y;
-  // int outRow = blockIdx.z * blockDim.z + threadIdx.z;
-  int outChannel = blockIdx.z * blockDim.z + threadIdx.z; // blockIdx.z always zero in the gridDim.z of 1 
-  int outRow = blockIdx.y * blockDim.y + threadIdx.y;
-  int outCol = blockIdx.x * blockDim.x + threadIdx.x;
+  int channel = blockIdx.x * blockDim.x + threadIdx.x;
+  int outCol = blockIdx.y * blockDim.y + threadIdx.y;
+  int outRow = blockIdx.z * blockDim.z + threadIdx.z;
+  // int channel = blockIdx.z * blockDim.z + threadIdx.z;
+  // int outRow = blockIdx.y * blockDim.y + threadIdx.y;
+  // int outCol = blockIdx.x * blockDim.x + threadIdx.x;
   
-  // Storing in shared mem - row, col, channel 
-  __shared__ float tile[TILE_WITH_HALO][TILE_WITH_HALO][CHANNELS];
-  
- 
-  // int linearThread = (threadIdx.y * blockDim.x + threadIdx.x) * blockDim.z + threadIdx.z; // less coalesced
-  // linear thread order belows: adjacent lanes load adjacent RGB values.
-  int linearThread = (threadIdx.z * blockDim.y + threadIdx.y) * blockDim.x + threadIdx.x; 
-  int stride = blockDim.z * blockDim.y * blockDim.x;
-  int boundary = imageChannels * TILE_WITH_HALO * TILE_WITH_HALO;
-  for(int idx = linearThread; idx < boundary; idx += stride) {
-    int tileRow = idx / (TILE_WITH_HALO * imageChannels);
-    int tileCol = (idx - tileRow * TILE_WITH_HALO * imageChannels) / imageChannels;
-    int channel = (idx - tileRow * TILE_WITH_HALO * imageChannels - tileCol * imageChannels);
-    int inRow = blockIdx.y * blockDim.y - MASK_RADIUS + tileRow; 
-    int inCol = blockIdx.x * blockDim.x - MASK_RADIUS + tileCol;
-    float val = 0.f;
-    if (0 <= inRow && inRow < imageHeight && 0 <= inCol && inCol < imageWidth) {
-      val = deviceInputImageData[(inRow * imageWidth + inCol) * imageChannels + channel]; 
-    }
-    tile[tileRow][tileCol][channel] = val;
-  }
-
-  __syncthreads();
-
-  if(outChannel < imageChannels && outCol < imageWidth && outRow < imageHeight) {
+  if(channel <imageChannels && outCol < imageWidth && outRow < imageHeight) {
     float acc = 0.f;
-    // Try with pragma unroll? 
-    for(int maskRow = 0; maskRow <= 2*MASK_RADIUS; ++maskRow) {
-      int inRow = threadIdx.y + maskRow;
-      for(int maskCol = 0; maskCol <= 2*MASK_RADIUS; ++maskCol) {
-        int inCol = threadIdx.x + maskCol;
-        acc += constantMask[maskRow * MASK_SIZE + maskCol] * tile[inRow][inCol][outChannel];
+    for(int maskRow = -MASK_RADIUS; maskRow <= MASK_RADIUS; ++maskRow) {
+      int inRow = outRow + maskRow;
+      for(int maskCol = -MASK_RADIUS; maskCol <= MASK_RADIUS; ++maskCol) {
+        int inCol = outCol + maskCol;
+        if (0 <= inCol && inCol < imageWidth && 0 <= inRow && inRow < imageHeight) {
+          acc += constantMask[(maskRow + MASK_RADIUS) * MASK_SIZE + (maskCol + MASK_RADIUS)] * 
+                 deviceInputImageData[(inRow * imageWidth + inCol) * imageChannels + channel];
+        }
       }
     } 
-    deviceOutputImageData[(outRow * imageWidth + outCol) * imageChannels + outChannel] = clamp(acc);
+    deviceOutputImageData[(outRow * imageWidth + outCol) * imageChannels + channel] = clamp(acc);
   }
 }
 
@@ -96,12 +72,6 @@ int main(int argc, char *argv[]) {
   imageHeight   = gpuTKImage_getHeight(inputImage);
   imageChannels = gpuTKImage_getChannels(inputImage);
   gpuTKLog(TRACE, "The dimensions of the image are ", imageHeight, " x ", imageWidth, " x ", imageChannels);
-  if (imageChannels != CHANNELS) {
-    // TODO may be use dynamic shared memory to set const image channels
-    gpuTKLog(ERROR, "Channels don't match the predefined value: ", imageChannels);
-    //TODO Add data cleanup
-    return 1; 
-  }
 
   outputImage = gpuTKImage_new(imageWidth, imageHeight, imageChannels);
 
@@ -135,13 +105,12 @@ int main(int argc, char *argv[]) {
   }
 
   // TODO this configuration would have better memory coalescing comapre to other - benchmark? 
-  // dim3 dimBlock(imageChannels, TILE_SIZE, TILE_SIZE);
-  // dim3 dimGrid(1, (imageWidth + TILE_SIZE - 1) / TILE_SIZE, (imageHeight + TILE_SIZE - 1) / TILE_SIZE);
+  dim3 dimBlock(imageChannels, TILE_SIZE, TILE_SIZE);
+  dim3 dimGrid(1, (imageWidth + TILE_SIZE - 1) / TILE_SIZE, (imageHeight + TILE_SIZE - 1) / TILE_SIZE);
   // max*Dim.z have lower limits - does it make sense to put lower dim things like channels in x?
-  dim3 dimBlock(TILE_SIZE, TILE_SIZE, imageChannels);
-  dim3 dimGrid((imageWidth + TILE_SIZE - 1) / TILE_SIZE, (imageHeight + TILE_SIZE - 1) / TILE_SIZE, 1);
+  // dim3 dimBlock(TILE_SIZE, TILE_SIZE, imageChannels);
+  // dim3 dimGrid((imageWidth + TILE_SIZE - 1) / TILE_SIZE, (imageHeight + TILE_SIZE - 1) / TILE_SIZE, 1);
   // TODO Try best of both configs and use x for (col+channel) and y for row or just 1D config?
-  // TODO Try with looping over channels in kernel as well 
   convolution<<<dimGrid, dimBlock>>>(deviceInputImageData, deviceOutputImageData, 
                                      imageChannels, imageWidth, imageHeight);
   gpuTKCheck(cudaGetLastError());

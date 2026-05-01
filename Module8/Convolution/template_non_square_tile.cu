@@ -2,8 +2,12 @@
 
 constexpr int MASK_RADIUS = 2;
 constexpr int MASK_SIZE = 2 * MASK_RADIUS + 1;
-constexpr int TILE_SIZE = 16;
-constexpr int TILE_WITH_HALO = TILE_SIZE + MASK_SIZE - 1;
+// TODO Check if this setting (32x10x3 = 960 )leads to better occupancy compared 
+// to earlier square spatial tiling of 16x16x3 = 768 threads/block
+constexpr int TILE_COL = 32;
+constexpr int TILE_ROW = 10;
+constexpr int TILE_WITH_HALO_COL = TILE_COL + MASK_SIZE - 1;
+constexpr int TILE_WITH_HALO_ROW = TILE_ROW + MASK_SIZE - 1;
 constexpr int CHANNELS = 3;
 
 __device__ __forceinline__ float clamp(float x) {
@@ -15,27 +19,23 @@ __constant__ float constantMask[MASK_SIZE * MASK_SIZE];
   
 __global__ void convolution(const float* __restrict__ deviceInputImageData, float* __restrict__ deviceOutputImageData, 
                              int imageChannels, int imageWidth, int imageHeight) {
-  // Set based on the value of the config setting chosen  
-  // int channel = blockIdx.x * blockDim.x + threadIdx.x;
-  // int outCol = blockIdx.y * blockDim.y + threadIdx.y;
-  // int outRow = blockIdx.z * blockDim.z + threadIdx.z;
   int outChannel = blockIdx.z * blockDim.z + threadIdx.z; // blockIdx.z always zero in the gridDim.z of 1 
   int outRow = blockIdx.y * blockDim.y + threadIdx.y;
   int outCol = blockIdx.x * blockDim.x + threadIdx.x;
   
   // Storing in shared mem - row, col, channel 
-  __shared__ float tile[TILE_WITH_HALO][TILE_WITH_HALO][CHANNELS];
+  __shared__ float tile[TILE_WITH_HALO_ROW][TILE_WITH_HALO_COL][CHANNELS];
   
  
   // int linearThread = (threadIdx.y * blockDim.x + threadIdx.x) * blockDim.z + threadIdx.z; // less coalesced
   // linear thread order belows: adjacent lanes load adjacent RGB values.
   int linearThread = (threadIdx.z * blockDim.y + threadIdx.y) * blockDim.x + threadIdx.x; 
   int stride = blockDim.z * blockDim.y * blockDim.x;
-  int boundary = imageChannels * TILE_WITH_HALO * TILE_WITH_HALO;
+  int boundary = imageChannels * TILE_WITH_HALO_COL * TILE_WITH_HALO_ROW;
   for(int idx = linearThread; idx < boundary; idx += stride) {
-    int tileRow = idx / (TILE_WITH_HALO * imageChannels);
-    int tileCol = (idx - tileRow * TILE_WITH_HALO * imageChannels) / imageChannels;
-    int channel = (idx - tileRow * TILE_WITH_HALO * imageChannels - tileCol * imageChannels);
+    int tileRow = idx / (TILE_WITH_HALO_COL * imageChannels);
+    int tileCol = (idx - tileRow * TILE_WITH_HALO_COL * imageChannels) / imageChannels;
+    int channel = (idx - tileRow * TILE_WITH_HALO_COL * imageChannels - tileCol * imageChannels);
     int inRow = blockIdx.y * blockDim.y - MASK_RADIUS + tileRow; 
     int inCol = blockIdx.x * blockDim.x - MASK_RADIUS + tileCol;
     float val = 0.f;
@@ -127,21 +127,15 @@ int main(int argc, char *argv[]) {
   cudaDeviceProp prop;
   gpuTKCheck(cudaGetDeviceProperties(&prop, 0));
 
-  int threadsPerBlock = imageChannels * TILE_SIZE * TILE_SIZE;
+  int threadsPerBlock = imageChannels * TILE_COL * TILE_ROW;
   if (threadsPerBlock > prop.maxThreadsPerBlock) {
     gpuTKLog(ERROR, "Too many threads per block: ", threadsPerBlock);
     //TODO Add data cleanup
     return 1; 
   }
 
-  // TODO this configuration would have better memory coalescing comapre to other - benchmark? 
-  // dim3 dimBlock(imageChannels, TILE_SIZE, TILE_SIZE);
-  // dim3 dimGrid(1, (imageWidth + TILE_SIZE - 1) / TILE_SIZE, (imageHeight + TILE_SIZE - 1) / TILE_SIZE);
-  // max*Dim.z have lower limits - does it make sense to put lower dim things like channels in x?
-  dim3 dimBlock(TILE_SIZE, TILE_SIZE, imageChannels);
-  dim3 dimGrid((imageWidth + TILE_SIZE - 1) / TILE_SIZE, (imageHeight + TILE_SIZE - 1) / TILE_SIZE, 1);
-  // TODO Try best of both configs and use x for (col+channel) and y for row or just 1D config?
-  // TODO Try with looping over channels in kernel as well 
+  dim3 dimBlock(TILE_COL, TILE_ROW, imageChannels);
+  dim3 dimGrid((imageWidth + TILE_COL - 1) / TILE_COL, (imageHeight + TILE_ROW - 1) / TILE_ROW, 1);
   convolution<<<dimGrid, dimBlock>>>(deviceInputImageData, deviceOutputImageData, 
                                      imageChannels, imageWidth, imageHeight);
   gpuTKCheck(cudaGetLastError());

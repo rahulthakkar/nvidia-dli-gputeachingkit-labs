@@ -128,6 +128,9 @@ int main(void) {
   generate(4, 64, 3, 0, 1);
   generate(5, 228, 128, 0, 1);
   generate(6, 28, 12, 0, 1);
+  generate(7, 1024, 1024, 0, 1);
+  generate(8, 4096, 4096, 0, 1);
+  generate(9, 4100, 4000, 0, 1);
 
   return 0;
 }
