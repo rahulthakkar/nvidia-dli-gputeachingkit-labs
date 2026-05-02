@@ -50,12 +50,26 @@ static inline gpuTKBool _almostEqual(float A, float B, float eps) {
   }
 }
 
-static inline gpuTKBool _almostEqual(double A, double B) {
-  return _almostEqual(A, B, 0.2);
+// static inline gpuTKBool _almostEqual(double A, double B) {
+//   return _almostEqual(A, B, 0.2);
+// }
+
+// static inline gpuTKBool _almostEqual(float A, float B) {
+//   return _almostEqual(A, B, 0.2f);
+// }
+
+static inline gpuTKBool _almostEqual(float actual, float expected) {
+  const float atol = 0.2f;
+  const float rtol = 1e-5f;
+
+  return _abs(actual - expected) <= (atol + rtol * _abs(expected));
 }
 
-static inline gpuTKBool _almostEqual(float A, float B) {
-  return _almostEqual(A, B, 0.2f);
+static inline gpuTKBool _almostEqual(double actual, double expected) {
+  const double atol = 0.2;
+  const double rtol = 1e-5;
+
+  return _abs(actual - expected) <= (atol + rtol * _abs(expected));
 }
 
 static inline gpuTKBool _almostEqual2sComplement(float A, float B,
