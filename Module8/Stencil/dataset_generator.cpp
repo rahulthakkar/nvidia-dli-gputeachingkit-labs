@@ -46,7 +46,7 @@ static unsigned char *generate_data(int width, int height, int depth) {
 
 static void write_data(char *file_name, unsigned char *data, int width,
                        int height, int depth) {
-  FILE *handle = fopen(file_name, "gpuTK");
+  FILE *handle = fopen(file_name, "wb");
   fprintf(handle, "S6\n");
   fprintf(handle, "%d %d %d\n", width, height, depth);
   fprintf(handle, "1\n");
@@ -83,5 +83,7 @@ int main() {
   create_dataset(6, 6, 1021, 1241);
   create_dataset(7, 9, 9, 1241);
   create_dataset(8, 1921, 19, 1241);
+  create_dataset(9, 512, 512, 512);
+  create_dataset(10, 65, 1000, 500);
   return 0;
 }

@@ -1,65 +1,34 @@
 #include <gputk.h>
 
-constexpr int TILE_SIZE = 16;
-constexpr int DEPTH_COARSE = 8;
-constexpr int TILE_OUT_SIZE = TILE_SIZE - 2;
-
-__device__ __forceinline__ float clamp(float x, float start = 0.f, float end = 255.f) {
+__device__ __forceinline__ float clamp(float x, float start, float end) {
   return fminf(fmaxf(x, start), end);
 }
 
+
 __global__ void stencil(float* __restrict__ output, const float* __restrict__ input, 
                         int width, int height, int depth) {
-  dim3 effectiveOutDim(TILE_OUT_SIZE, TILE_OUT_SIZE, DEPTH_COARSE);                      
-  int inIdx = effectiveOutDim.x * blockIdx.x + threadIdx.x - 1;
-  int inIdy = effectiveOutDim.y * blockIdx.y + threadIdx.y - 1;
-  int inStartIdz = effectiveOutDim.z * blockIdx.z - 1;
-  const bool isValidSpatially = (0 <= inIdy && inIdy < height && 0 <= inIdx && inIdx < width);
-
-  __shared__ float tile[TILE_SIZE][TILE_SIZE]; 
-  float prev = 0.f, curr = 0.f, next = 0.f; 
-  if (isValidSpatially) {
-    if (0 <= inStartIdz && inStartIdz < depth) {
-      prev = input[(inIdy * width + inIdx) * depth + inStartIdz];
-    }
-    if (0 <= (inStartIdz + 1) && (inStartIdz + 1) < depth) {
-      curr = input[(inIdy * width + inIdx) * depth + (inStartIdz + 1)];
-    }
-  }
-  tile[threadIdx.y][threadIdx.x] = curr;
-
-
-  for(int k = 0; k < DEPTH_COARSE; ++k) {
-    next = 0.f;
-    if (isValidSpatially && 0 <= (inStartIdz + k + 2) && (inStartIdz + k + 2) < depth) {
-      next = input[(inIdy * width + inIdx) * depth + (inStartIdz + k + 2)];
-    } 
-    __syncthreads();
-
-    if (0 < threadIdx.y && threadIdx.y < blockDim.y - 1 && 0 < threadIdx.x && threadIdx.x < blockDim.x - 1) {
-        int outZ = inStartIdz + k + 1;
-        if (0 < inIdy && inIdy < height - 1  && 0 < inIdx && inIdx < width - 1 && 0 < outZ && outZ < depth - 1) {
-          output[(inIdy * width + inIdx) * depth + outZ] = clamp(
-                    prev + next + 
-                    tile[threadIdx.y][threadIdx.x - 1] + tile[threadIdx.y][threadIdx.x + 1] +
-                    tile[threadIdx.y - 1][threadIdx.x] + tile[threadIdx.y + 1][threadIdx.x] - 
-                    6.f * tile[threadIdx.y][threadIdx.x]);
-        }
-    }
-
-    __syncthreads();
-    prev = tile[threadIdx.y][threadIdx.x];
-    tile[threadIdx.y][threadIdx.x] = next;
+  int k = blockDim.x * blockIdx.x + threadIdx.x;
+  int j = blockDim.y * blockIdx.y + threadIdx.y;
+  int i = blockDim.z * blockIdx.z + threadIdx.z;
+  
+  if (0 < k && k < depth-1 && 0 < j && j < width-1 && 0 < i && i < height-1) {
+    float ans = input[(i * width + j) * depth + (k - 1)] +
+                input[(i * width + j) * depth + (k + 1)] +
+                input[(i * width + (j - 1)) * depth + k] +
+                input[(i * width + (j + 1)) * depth + k] +
+                input[((i - 1) * width + j) * depth + k] +
+                input[((i + 1) * width + j) * depth + k] -
+                6.f * input[(i * width + j) * depth + k];
+    output[(i * width + j) * depth + k] = clamp(ans, 0.f, 255.f);
   } 
 }
 
 static void launch_stencil(float* __restrict__  deviceOutputData, const float* __restrict__ deviceInputData,
                            int width, int height, int depth) {
-  dim3 blockDim(TILE_SIZE, TILE_SIZE, 1);
-  dim3 effectiveOutDim(TILE_OUT_SIZE, TILE_OUT_SIZE, DEPTH_COARSE);
-  dim3 gridDim((width + effectiveOutDim.x - 1) / effectiveOutDim.x,
-               (height + effectiveOutDim.y - 1) / effectiveOutDim.y, 
-               (depth + effectiveOutDim.z - 1) / effectiveOutDim.z);
+  dim3 blockDim(8, 8, 8);
+  dim3 gridDim((depth + blockDim.x - 1) / blockDim.x,
+               (width + blockDim.y - 1) / blockDim.y, 
+               (height + blockDim.z - 1) / blockDim.z);
   
   stencil<<<gridDim, blockDim>>>(deviceOutputData, deviceInputData, width, height, depth); 
 }
