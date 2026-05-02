@@ -58,5 +58,7 @@ int main() {
   create_dataset(7, 4098);
   create_dataset(8, 4018);
   create_dataset(9, 1);
+  create_dataset(10, 70000);
+  create_dataset(11, 1000000);
   return 0;
 }
