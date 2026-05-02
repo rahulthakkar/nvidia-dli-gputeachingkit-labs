@@ -5,18 +5,18 @@
 #include <gputk.h>
 
 constexpr int BLOCK_SIZE = 512; //@@ You can change this
-constexpr int COARSE_FACTOR = 4;
 
 __global__ void total(const float* __restrict__ input, float* __restrict__ output, int len) {
-  unsigned int idx = blockDim.x * blockIdx.x * 2 * COARSE_FACTOR + threadIdx.x;
+  unsigned int idx = blockDim.x * blockIdx.x * 2 + threadIdx.x;
 
   //@@ Load a segment of the input vector into shared memory
   __shared__ float mem[BLOCK_SIZE];
   float val = 0.f;
-  for(int stride = 0; stride < 2 * COARSE_FACTOR * blockDim.x; stride += blockDim.x) {
-    if (idx + stride < len) {
-      val += input[idx + stride]; 
-    }
+  if (idx < len) {
+    val = input[idx]; 
+  }
+  if (idx + blockDim.x < len) {
+    val += input[idx + blockDim.x]; 
   } 
   mem[threadIdx.x] = val;
   __syncthreads();
@@ -50,7 +50,7 @@ int main(int argc, char **argv) {
   gpuTKTime_start(Generic, "Importing data and creating memory on host");
   hostInput = (float *)gpuTKImport(gpuTKArg_getInputFile(args, 0), &numInputElements);
 
-  int blockElements = BLOCK_SIZE * 2 * COARSE_FACTOR;
+  int blockElements = BLOCK_SIZE * 2;
   numOutputElements = (numInputElements + blockElements - 1) / blockElements;
 
   const size_t numInputBytes = numInputElements * sizeof(float); 
